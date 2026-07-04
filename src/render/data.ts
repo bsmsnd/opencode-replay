@@ -158,6 +158,9 @@ export interface SessionStats {
   pageCount: number
   totalTokensInput: number
   totalTokensOutput: number
+  totalTokensReasoning?: number
+  totalTokensCacheRead?: number
+  totalTokensCacheWrite?: number
   totalCost: number
   model?: string
 }
@@ -165,7 +168,10 @@ export interface SessionStats {
 /**
  * Calculate aggregated statistics from messages
  */
-export function calculateSessionStats(messages: MessageWithParts[]): SessionStats {
+export function calculateSessionStats(
+  messages: MessageWithParts[],
+  session?: Session
+): SessionStats {
   let totalTokensInput = 0
   let totalTokensOutput = 0
   let totalCost = 0
@@ -190,10 +196,9 @@ export function calculateSessionStats(messages: MessageWithParts[]): SessionStat
     }
   }
 
-  // Calculate page count directly instead of calling paginateMessages
   const pageCount = userMessageCount > 0 ? Math.ceil(userMessageCount / PROMPTS_PER_PAGE) : 0
 
-  return {
+  const stats: SessionStats = {
     messageCount: messages.length,
     pageCount,
     totalTokensInput,
@@ -201,6 +206,20 @@ export function calculateSessionStats(messages: MessageWithParts[]): SessionStat
     totalCost,
     model,
   }
+
+  if (session?.cost !== undefined) stats.totalCost = session.cost
+  if (session?.tokens) {
+    stats.totalTokensInput = session.tokens.input
+    stats.totalTokensOutput = session.tokens.output
+    if (session.tokens.reasoning) stats.totalTokensReasoning = session.tokens.reasoning
+    if (session.tokens.cache) {
+      if (session.tokens.cache.read) stats.totalTokensCacheRead = session.tokens.cache.read
+      if (session.tokens.cache.write) stats.totalTokensCacheWrite = session.tokens.cache.write
+    }
+  }
+  if (session?.model && !stats.model) stats.model = session.model
+
+  return stats
 }
 
 // =============================================================================
@@ -228,7 +247,7 @@ export function buildSessionData(
   repo?: RepoInfo
 ): SessionData {
   const timeline = buildTimeline(messages, repo)
-  const stats = calculateSessionStats(messages)
+  const stats = calculateSessionStats(messages, session)
   const firstPrompt = getFirstPrompt(messages)
 
   return {
