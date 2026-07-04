@@ -30,7 +30,7 @@ import {
 export { PROMPTS_PER_PAGE } from "./data"
 
 export interface GenerateHtmlOptions {
-  /** Path to OpenCode storage directory */
+  /** Path to OpenCode database (opencode.db) */
   storagePath: string
   /** Output directory for generated HTML */
   outputDir: string

@@ -149,6 +149,12 @@ describe("listSessions", () => {
     expect(first?.tokens?.input).toBe(1000)
     expect(first?.tokens?.cache?.read).toBe(200)
   })
+
+  test("keeps session-level cost of 0 (authoritative) instead of stripping to undefined", async () => {
+    const sessions = await listSessions(testDbPath, "proj_001")
+    const zero = sessions.find((s) => s.id === "ses_002") // fixture sets no cost → DB default 0
+    expect(zero?.cost).toBe(0)
+  })
 })
 
 // =============================================================================

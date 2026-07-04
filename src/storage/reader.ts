@@ -84,7 +84,7 @@ function mapSession(r: SessionRow): Session {
     ...(r.share_url != null ? { share: { url: r.share_url } } : {}),
     ...(revert ? { revert } : {}),
     ...(summary ? { summary } : {}),
-    ...(r.cost !== 0 ? { cost: r.cost } : {}),
+    cost: r.cost,
     ...(r.model != null ? { model: r.model } : {}),
     ...(r.agent != null ? { agent: r.agent } : {}),
     ...(tokens ? { tokens } : {}),
