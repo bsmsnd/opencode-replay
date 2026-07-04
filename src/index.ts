@@ -6,7 +6,8 @@
 import { parseArgs } from "util"
 import { resolve, join } from "path"
 import { readdir } from "node:fs/promises"
-import { getDefaultDbPath, findProjectByPath, listProjects, listSessions, getMessagesWithParts } from "./storage/reader"
+import { findProjectByPath, listProjects, listSessions, getMessagesWithParts } from "./storage/reader"
+import { resolveDbPath, validateDb } from "./storage/db"
 import { generateHtml, type ProgressInfo, type GenerationStats } from "./render/html"
 import { generateMarkdown, calculateSessionStats } from "./render"
 import { serve } from "./server"
@@ -126,7 +127,7 @@ function slugify(text: string): string {
  * Generate auto-named output directory based on mode
  */
 async function getAutoOutputDir(
-  storagePath: string,
+  dbPath: string,
   sessionId?: string,
   all?: boolean
 ): Promise<string> {
@@ -138,9 +139,9 @@ async function getAutoOutputDir(
 
   if (sessionId) {
     // Single session mode - find session and use its title
-    const projects = await listProjects(storagePath)
+    const projects = await listProjects(dbPath)
     for (const project of projects) {
-      const sessions = await listSessions(storagePath, project.id)
+      const sessions = await listSessions(dbPath, project.id)
       const session = sessions.find((s) => s.id === sessionId)
       if (session) {
         const name = slugify(session.title) || sessionId.slice(0, 12)
@@ -153,7 +154,7 @@ async function getAutoOutputDir(
 
   // Current project mode - use project name
   const cwd = process.cwd()
-  const project = await findProjectByPath(storagePath, cwd)
+  const project = await findProjectByPath(dbPath, cwd)
   if (project) {
     const name = project.name ?? project.worktree.split("/").pop() ?? "project"
     const slug = slugify(name) || "project"
@@ -201,7 +202,7 @@ const { values } = parseArgs({
     },
     storage: {
       type: "string",
-      description: "Custom storage path",
+      description: "Path to opencode.db (or its parent directory)",
     },
     serve: {
       type: "boolean",
@@ -289,7 +290,7 @@ Options:
   --gist-public          Make gist public (default: secret)
   --json                 Include raw JSON export alongside HTML
   --open                 Open in browser after generation
-  --storage <path>       Custom storage path (default: ~/.local/share/opencode/storage)
+  --storage <path>       Path to opencode.db (default: ~/.local/share/opencode/opencode.db)
   --serve                Start HTTP server after generation
   --port <number>        Server port (default: 3000)
   --no-generate          Skip generation, only serve existing output
@@ -338,13 +339,13 @@ if (values.version) {
 }
 
 // Main execution
-const storagePath = values.storage ?? getDefaultDbPath()
+const dbPath = resolveDbPath(values.storage)
 const port = parseInt(values.port ?? "3000", 10)
 quietMode = values.quiet ?? false
 verboseMode = values.verbose ?? false
 
 debug(`CLI arguments: ${JSON.stringify(values)}`)
-debug(`Storage path: ${storagePath}`)
+debug(`DB path: ${dbPath}`)
 debug(`Working directory: ${process.cwd()}`)
 
 // Validate port
@@ -392,39 +393,27 @@ if (values["gist-public"] && !values.gist) {
   console.error(color("Warning:", colors.yellow, colors.bold) + " --gist-public has no effect without --gist")
 }
 
-// Validate storage path exists
-// First check if the directory exists, then verify it has the expected structure
-try {
-  await readdir(storagePath)
-  // Directory exists - verify it has the project/ subdirectory (OpenCode storage structure)
-  const projectDir = join(storagePath, "project")
-  try {
-    await readdir(projectDir)
-  } catch {
-    throw new Error("INVALID_STORAGE")
-  }
-} catch (err) {
-  const error = err as NodeJS.ErrnoException
-  console.error(color("Error:", colors.red, colors.bold) + ` OpenCode storage not found at: ${storagePath}`)
+const validation = validateDb(dbPath)
+if (!validation.ok) {
+  console.error(color("Error:", colors.red, colors.bold) + ` OpenCode database not found at: ${dbPath}`)
   console.error("")
-  if (error.code === "ENOENT") {
-    console.error(color("The directory does not exist.", colors.yellow))
-  } else if (error.message === "INVALID_STORAGE") {
-    console.error(color("The directory exists but is not a valid OpenCode storage.", colors.yellow))
-    console.error(color("Missing 'project/' subdirectory.", colors.dim))
+  if (validation.reason === "ENOENT") {
+    console.error(color("The file does not exist.", colors.yellow))
+  } else if (validation.reason === "NOT_SQLITE") {
+    console.error(color("The file is not a valid SQLite database.", colors.yellow))
   } else {
-    console.error(color("The directory exists but is not a valid OpenCode storage.", colors.yellow))
+    console.error(color("The file is a SQLite database but not valid OpenCode storage (missing core tables).", colors.yellow))
   }
   console.error("")
   console.error(color("This could mean:", colors.dim))
   console.error("  1. OpenCode has not been used on this machine yet")
-  console.error("  2. The storage path is incorrect")
+  console.error("  2. The database path is incorrect")
   console.error("")
   console.error(color("Solutions:", colors.green))
-  console.error("  - Run OpenCode at least once to create the storage directory")
-  console.error("  - Use --storage <path> to specify a custom storage location")
+  console.error("  - Run OpenCode at least once to create the database")
+  console.error("  - Use --storage <path-to-opencode.db>")
   console.error("")
-  console.error(color("Expected path:", colors.dim) + ` ${storagePath}`)
+  console.error(color("Default path:", colors.dim) + ` ${resolveDbPath()}`)
   process.exit(1)
 }
 
@@ -437,7 +426,7 @@ if (values.output) {
 } else if (values.auto) {
   // Auto-generate output directory name
   debug("Auto-generating output directory name...")
-  outputDir = await getAutoOutputDir(storagePath, values.session, values.all)
+  outputDir = await getAutoOutputDir(dbPath, values.session, values.all)
   debug(`Auto-generated output directory: ${outputDir}`)
 } else {
   // Default
@@ -477,11 +466,11 @@ if (isMarkdownFormat) {
 
   try {
     // Find the session across all projects
-    const projects = await listProjects(storagePath)
+    const projects = await listProjects(dbPath)
     let foundSession: { session: Awaited<ReturnType<typeof listSessions>>[0], projectName?: string } | null = null
 
     for (const project of projects) {
-      const sessions = await listSessions(storagePath, project.id)
+      const sessions = await listSessions(dbPath, project.id)
       const session = sessions.find((s) => s.id === values.session)
       if (session) {
         foundSession = { session, projectName: project.name }
@@ -495,7 +484,7 @@ if (isMarkdownFormat) {
     }
 
     // Load messages and generate markdown
-    const messages = await getMessagesWithParts(storagePath, foundSession.session.id)
+    const messages = await getMessagesWithParts(dbPath, foundSession.session.id)
     const stats = calculateSessionStats(messages)
     const markdown = generateMarkdown({
       session: foundSession.session,
@@ -533,7 +522,7 @@ if (isMarkdownFormat) {
 
 log(color("opencode-replay", colors.bold, colors.cyan))
 log(color("---------------", colors.dim))
-log(color("Storage:", colors.dim) + ` ${storagePath}`)
+log(color("Storage:", colors.dim) + ` ${dbPath}`)
 log(color("Output:", colors.dim) + ` ${resolve(outputDir)}`)
 if (repoInfo) {
   log(color("Repo:", colors.dim) + ` ${repoInfo.fullName}`)
@@ -563,7 +552,7 @@ if (values["no-generate"]) {
 
   try {
     const stats = await generateHtml({
-      storagePath,
+      storagePath: dbPath,
       outputDir: resolve(outputDir),
       all: values.all ?? false,
       sessionId: values.session,
