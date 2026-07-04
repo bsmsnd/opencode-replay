@@ -4,7 +4,7 @@
  */
 
 import {
-  getDefaultStoragePath,
+  getDefaultDbPath,
   listProjects,
   listSessions,
   listMessages,
@@ -13,8 +13,8 @@ import {
 } from "./storage"
 
 async function main() {
-  const storagePath = getDefaultStoragePath()
-  console.log("Storage path:", storagePath)
+  const storagePath = getDefaultDbPath()
+  console.log("DB path:", storagePath)
   console.log("")
 
   // List projects

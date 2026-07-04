@@ -38,6 +38,7 @@ export interface SessionSummary {
   additions?: number
   deletions?: number
   files?: number
+  diffs?: FileDiff[]
 }
 
 export interface SessionShare {
@@ -60,6 +61,10 @@ export interface Session {
   share?: SessionShare
   revert?: SessionRevert
   summary?: SessionSummary
+  cost?: number
+  model?: string
+  agent?: string
+  tokens?: TokenUsage
 }
 
 // =============================================================================

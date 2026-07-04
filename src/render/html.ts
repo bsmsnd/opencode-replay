@@ -30,7 +30,7 @@ import {
 export { PROMPTS_PER_PAGE } from "./data"
 
 export interface GenerateHtmlOptions {
-  /** Path to OpenCode storage directory */
+  /** Path to OpenCode database (opencode.db) */
   storagePath: string
   /** Output directory for generated HTML */
   outputDir: string
@@ -159,7 +159,7 @@ async function generateSessionHtml(
   // Use shared data utilities
   const firstPrompt = getFirstPrompt(messages)
   const timeline = buildTimeline(messages, repo)
-  const stats = calculateSessionStats(messages)
+  const stats = calculateSessionStats(messages, session)
   const pages = paginateMessages(messages)
 
   // Generate session overview page
@@ -169,8 +169,14 @@ async function generateSessionHtml(
     timeline,
     messageCount: stats.messageCount,
     totalTokens:
-      stats.totalTokensInput > 0 || stats.totalTokensOutput > 0
-        ? { input: stats.totalTokensInput, output: stats.totalTokensOutput }
+      stats.totalTokensInput > 0 || stats.totalTokensOutput > 0 || stats.totalTokensReasoning || stats.totalTokensCacheRead || stats.totalTokensCacheWrite
+        ? {
+            input: stats.totalTokensInput,
+            output: stats.totalTokensOutput,
+            reasoning: stats.totalTokensReasoning,
+            cacheRead: stats.totalTokensCacheRead,
+            cacheWrite: stats.totalTokensCacheWrite,
+          }
         : undefined,
     totalCost: stats.totalCost > 0 ? stats.totalCost : undefined,
     pageCount: stats.pageCount,

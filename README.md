@@ -9,7 +9,7 @@ A CLI tool that generates static HTML transcripts from [OpenCode](https://github
 
 ## Why?
 
-OpenCode stores session data in `~/.local/share/opencode/storage/` as JSON files, but this data isn't easily browsable or shareable. `opencode-replay` transforms these sessions into clean, searchable, static HTML pages.
+OpenCode stores session data in a SQLite database at `~/.local/share/opencode/opencode.db`, but this data isn't easily browsable or shareable. `opencode-replay` transforms these sessions into clean, searchable, static HTML pages.
 
 **Use cases:**
 - **PR Documentation** - Attach session transcripts to pull requests showing the AI collaboration process
@@ -153,7 +153,7 @@ This adds links to commit hashes found in tool outputs, making it easy to naviga
 | `--gist-public` | | Make gist public (default: secret) |
 | `--json` | | Include raw JSON export alongside HTML |
 | `--open` | | Open in browser after generation |
-| `--storage <path>` | | Custom storage path (default: `~/.local/share/opencode/storage`) |
+| `--storage <path>` | | Path to opencode.db (or its parent directory) (default: `~/.local/share/opencode/opencode.db`) |
 | `--serve` | | Start HTTP server after generation |
 | `--port <number>` | | Server port (default: `3000`) |
 | `--no-generate` | | Skip generation, only serve existing output |
@@ -180,7 +180,7 @@ opencode-replay --session ses_abc123 --json -o ./session-export
 opencode-replay -a  # Creates ./my-project-replay
 
 # Use custom storage location
-opencode-replay --storage /custom/path/to/storage
+opencode-replay --storage /custom/path/to/opencode.db
 
 # Generate and serve for easy sharing
 opencode-replay --serve --port 8080

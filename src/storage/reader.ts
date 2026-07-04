@@ -1,112 +1,132 @@
-/**
- * Storage reader functions for OpenCode's file-based storage
- */
-
-import { readdir } from "node:fs/promises"
-import { join } from "node:path"
-import { homedir } from "node:os"
 import type {
   Project,
   Session,
   Message,
   Part,
   MessageWithParts,
-  SessionDiff,
   TodoList,
+  TokenUsage,
+  FileDiff,
+  SessionRevert,
+  SessionSummary,
 } from "./types"
+import {
+  openDb,
+  queryProjects,
+  queryProjectById,
+  querySessionsByProject,
+  queryAllSessions,
+  querySessionById,
+  queryMessagesBySession,
+  queryPartsByMessage,
+  queryTodosBySession,
+  getDefaultDbPath,
+  type ProjectRow,
+  type SessionRow,
+  type MessageRow,
+  type PartRow,
+} from "./db"
 
-// =============================================================================
-// STORAGE PATH
-// =============================================================================
+export { getDefaultDbPath }
 
-/**
- * Get the default OpenCode storage path
- * - macOS/Linux: ~/.local/share/opencode/storage
- * - Windows: %USERPROFILE%\.local\share\opencode\storage
- */
-export function getDefaultStoragePath(): string {
-  return join(homedir(), ".local", "share", "opencode", "storage")
-}
-
-// =============================================================================
-// LOW-LEVEL HELPERS
-// =============================================================================
-
-/**
- * Read and parse a JSON file, returning null if it doesn't exist or is invalid
- */
-async function readJson<T>(filePath: string): Promise<T | null> {
-  try {
-    const file = Bun.file(filePath)
-    if (!(await file.exists())) {
-      return null
-    }
-    return (await file.json()) as T
-  } catch {
-    // File doesn't exist or invalid JSON
-    return null
+function mapProject(r: ProjectRow): Project {
+  return {
+    id: r.id,
+    worktree: r.worktree,
+    vcs: (r.vcs ?? undefined) as "git" | undefined,
+    name: r.name ?? undefined,
+    time: { created: r.time_created, updated: r.time_updated },
   }
 }
 
-/**
- * List all JSON files in a directory (non-recursive)
- * Returns the file names without .json extension
- */
-async function listJsonFiles(dirPath: string): Promise<string[]> {
+function mapSession(r: SessionRow): Session {
+  const tokens: TokenUsage | undefined =
+    r.tokens_input || r.tokens_output || r.tokens_reasoning || r.tokens_cache_read || r.tokens_cache_write
+      ? {
+          input: r.tokens_input,
+          output: r.tokens_output,
+          reasoning: r.tokens_reasoning,
+          cache: { read: r.tokens_cache_read, write: r.tokens_cache_write },
+        }
+      : undefined
+  let summary: SessionSummary | undefined = r.summary_additions ?? r.summary_deletions ?? r.summary_files
+    ? { additions: r.summary_additions ?? undefined, deletions: r.summary_deletions ?? undefined, files: r.summary_files ?? undefined }
+    : undefined
+  if (r.summary_diffs) {
+    try {
+      const diffs = JSON.parse(r.summary_diffs) as FileDiff[]
+      summary = { ...(summary ?? {}), diffs }
+    } catch {
+      // ignore malformed diffs
+    }
+  }
+  let revert: SessionRevert | undefined
+  if (r.revert) {
+    try {
+      revert = JSON.parse(r.revert) as SessionRevert
+    } catch {
+      // ignore malformed revert
+    }
+  }
+  return {
+    id: r.id,
+    projectID: r.project_id,
+    directory: r.directory,
+    title: r.title,
+    version: r.version,
+    time: {
+      created: r.time_created,
+      updated: r.time_updated,
+      ...(r.time_compacting != null ? { compacting: r.time_compacting } : {}),
+      ...(r.time_archived != null ? { archived: r.time_archived } : {}),
+    },
+    ...(r.parent_id != null ? { parentID: r.parent_id } : {}),
+    ...(r.share_url != null ? { share: { url: r.share_url } } : {}),
+    ...(revert ? { revert } : {}),
+    ...(summary ? { summary } : {}),
+    cost: r.cost,
+    ...(r.model != null ? { model: r.model } : {}),
+    ...(r.agent != null ? { agent: r.agent } : {}),
+    ...(tokens ? { tokens } : {}),
+  }
+}
+
+function mapMessage(r: MessageRow): Message {
+  const data = JSON.parse(r.data) as Record<string, unknown>
+  return { id: r.id, sessionID: r.session_id, ...data } as unknown as Message
+}
+
+function mapPart(r: PartRow): Part {
+  const data = JSON.parse(r.data) as Record<string, unknown>
+  return {
+    id: r.id,
+    sessionID: r.session_id,
+    messageID: r.message_id,
+    ...data,
+  } as unknown as Part
+}
+
+export async function listProjects(dbPath: string): Promise<Project[]> {
   try {
-    const entries = await readdir(dirPath, { withFileTypes: true })
-    return entries
-      .filter((e) => e.isFile() && e.name.endsWith(".json"))
-      .map((e) => e.name.replace(".json", ""))
+    return queryProjects(openDb(dbPath)).map(mapProject)
   } catch {
-    // Directory doesn't exist
     return []
   }
 }
 
-// =============================================================================
-// PROJECT FUNCTIONS
-// =============================================================================
-
-/**
- * List all projects in storage
- * Returns projects sorted by most recently updated
- */
-export async function listProjects(storagePath: string): Promise<Project[]> {
-  const projectDir = join(storagePath, "project")
-  const projectIds = await listJsonFiles(projectDir)
-
-  const projects: Project[] = []
-  for (const id of projectIds) {
-    const project = await readJson<Project>(join(projectDir, `${id}.json`))
-    if (project) projects.push(project)
-  }
-
-  // Sort by most recently updated
-  return projects.sort((a, b) => b.time.updated - a.time.updated)
-}
-
-/**
- * Get a specific project by ID
- */
 export async function getProject(
-  storagePath: string,
+  dbPath: string,
   projectId: string
 ): Promise<Project | null> {
-  return readJson<Project>(join(storagePath, "project", `${projectId}.json`))
+  const row = queryProjectById(openDb(dbPath), projectId)
+  return row ? mapProject(row) : null
 }
 
-/**
- * Find a project by its worktree path
- * Returns the project whose worktree matches or contains the given path
- */
 export async function findProjectByPath(
-  storagePath: string,
+  dbPath: string,
   workdir: string
 ): Promise<Project | null> {
-  const projects = await listProjects(storagePath)
-  // Find project where workdir exactly matches or is a subdirectory of the worktree
-  // Using trailing slash to avoid false positives (e.g., /project vs /project-extended)
+  const projects = await listProjects(dbPath)
   return (
     projects.find(
       (p) => workdir === p.worktree || workdir.startsWith(p.worktree + "/")
@@ -114,175 +134,86 @@ export async function findProjectByPath(
   )
 }
 
-// =============================================================================
-// SESSION FUNCTIONS
-// =============================================================================
-
-/**
- * List all sessions for a project
- * Returns sessions sorted by most recently updated
- */
 export async function listSessions(
-  storagePath: string,
+  dbPath: string,
   projectId: string
 ): Promise<Session[]> {
-  const sessionDir = join(storagePath, "session", projectId)
-  const sessionIds = await listJsonFiles(sessionDir)
-
-  const sessions: Session[] = []
-  for (const id of sessionIds) {
-    const session = await readJson<Session>(join(sessionDir, `${id}.json`))
-    if (session) sessions.push(session)
-  }
-
-  // Sort by most recently updated
-  return sessions.sort((a, b) => b.time.updated - a.time.updated)
+  return querySessionsByProject(openDb(dbPath), projectId).map(mapSession)
 }
 
-/**
- * Get a specific session by ID
- */
 export async function getSession(
-  storagePath: string,
-  projectId: string,
+  dbPath: string,
+  _projectId: string,
   sessionId: string
 ): Promise<Session | null> {
-  return readJson<Session>(
-    join(storagePath, "session", projectId, `${sessionId}.json`)
-  )
+  const row = querySessionById(openDb(dbPath), sessionId)
+  return row ? mapSession(row) : null
 }
 
-/**
- * List all sessions across all projects
- * Returns sessions with their project info, sorted by most recently updated
- */
 export async function listAllSessions(
-  storagePath: string
+  dbPath: string
 ): Promise<Array<{ project: Project; session: Session }>> {
-  const projects = await listProjects(storagePath)
-  const results: Array<{ project: Project; session: Session }> = []
-
-  for (const project of projects) {
-    const sessions = await listSessions(storagePath, project.id)
-    for (const session of sessions) {
-      results.push({ project, session })
-    }
-  }
-
-  // Sort by session update time
-  return results.sort((a, b) => b.session.time.updated - a.session.time.updated)
+  const rows = queryAllSessions(openDb(dbPath))
+  return rows.map((r) => ({
+    project: mapProject({
+      id: r.project_id,
+      worktree: r.worktree,
+      vcs: null,
+      name: null,
+      time_created: r.time_created,
+      time_updated: r.time_updated,
+    }),
+    session: mapSession(r),
+  }))
 }
 
-// =============================================================================
-// MESSAGE FUNCTIONS
-// =============================================================================
-
-/**
- * List all messages for a session
- * Returns messages sorted chronologically by creation time
- */
 export async function listMessages(
-  storagePath: string,
+  dbPath: string,
   sessionId: string
 ): Promise<Message[]> {
-  const messageDir = join(storagePath, "message", sessionId)
-  const messageIds = await listJsonFiles(messageDir)
-
-  const messages: Message[] = []
-  for (const id of messageIds) {
-    const message = await readJson<Message>(join(messageDir, `${id}.json`))
-    if (message) messages.push(message)
-  }
-
-  // Sort by creation time - chronological order
-  return messages.sort((a, b) => a.time.created - b.time.created)
+  return queryMessagesBySession(openDb(dbPath), sessionId).map(mapMessage)
 }
 
-/**
- * Get a specific message by ID
- */
 export async function getMessage(
-  storagePath: string,
-  sessionId: string,
+  dbPath: string,
+  _sessionId: string,
   messageId: string
 ): Promise<Message | null> {
-  return readJson<Message>(
-    join(storagePath, "message", sessionId, `${messageId}.json`)
-  )
+  const rows = queryMessagesBySession(openDb(dbPath), _sessionId)
+  const row = rows.find((r) => r.id === messageId)
+  return row ? mapMessage(row) : null
 }
 
-// =============================================================================
-// PART FUNCTIONS
-// =============================================================================
-
-/**
- * List all parts for a message
- * Returns parts sorted chronologically by ID
- * Note: Parts don't have a consistent time.created field, so we use ID comparison
- * which is designed to be sequential within a message
- */
 export async function listParts(
-  storagePath: string,
+  dbPath: string,
   messageId: string
 ): Promise<Part[]> {
-  const partDir = join(storagePath, "part", messageId)
-  const partIds = await listJsonFiles(partDir)
-
-  const parts: Part[] = []
-  for (const id of partIds) {
-    const part = await readJson<Part>(join(partDir, `${id}.json`))
-    if (part) parts.push(part)
-  }
-
-  // Sort by ID - chronological order (IDs are sequential within a message)
-  return parts.sort((a, b) => a.id.localeCompare(b.id))
+  return queryPartsByMessage(openDb(dbPath), messageId).map(mapPart)
 }
 
-// =============================================================================
-// COMBINED QUERIES
-// =============================================================================
-
-/**
- * Get all messages with their parts for a session
- * This is the main function for reading a complete conversation
- */
 export async function getMessagesWithParts(
-  storagePath: string,
+  dbPath: string,
   sessionId: string
 ): Promise<MessageWithParts[]> {
-  const messages = await listMessages(storagePath, sessionId)
-
+  const messages = await listMessages(dbPath, sessionId)
   const result: MessageWithParts[] = []
   for (const message of messages) {
-    const parts = await listParts(storagePath, message.id)
+    const parts = await listParts(dbPath, message.id)
     result.push({ message, parts })
   }
-
   return result
 }
 
-// =============================================================================
-// ADDITIONAL STORAGE ENTITIES
-// =============================================================================
-
-/**
- * Get the session diff (file changes) for a session
- */
-export async function getSessionDiff(
-  storagePath: string,
-  sessionId: string
-): Promise<SessionDiff | null> {
-  return readJson<SessionDiff>(
-    join(storagePath, "session_diff", `${sessionId}.json`)
-  )
-}
-
-/**
- * Get the todo list for a session
- */
 export async function getTodoList(
-  storagePath: string,
+  dbPath: string,
   sessionId: string
 ): Promise<TodoList | null> {
-  return readJson<TodoList>(join(storagePath, "todo", `${sessionId}.json`))
+  const rows = queryTodosBySession(openDb(dbPath), sessionId)
+  if (rows.length === 0) return null
+  return rows.map((r) => ({
+    id: String(r.position),
+    content: r.content,
+    priority: r.priority as TodoList[number]["priority"],
+    status: r.status as TodoList[number]["status"],
+  }))
 }
