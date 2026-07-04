@@ -154,22 +154,35 @@ aggregation is a fallback (for zero/missing values).
    }
    ```
 
-3. **`buildSessionData` reconciliation** (`data.ts:224`) - stats still aggregate
-   from messages first, then session-level authoritative values override when
-   present:
+3. **`calculateSessionStats` reconciliation** (`data.ts:168`) - signature gains an
+   optional `session` param so BOTH renderers benefit (HTML calls
+   `calculateSessionStats` directly at `html.ts:162`; Markdown via
+   `buildSessionData`). Stats still aggregate from messages first, then
+   session-level authoritative values override when present:
    ```ts
-   const stats = calculateSessionStats(messages)
-   // Column is `cost real DEFAULT 0 NOT NULL`, so check !== undefined, not truthiness:
-   // a session-level 0 is authoritative and must override a nonzero message sum.
-   if (session.cost !== undefined) stats.totalCost = session.cost
-   if (session.tokens) {
-     stats.totalTokensInput = session.tokens.input
-     stats.totalTokensOutput = session.tokens.output
-     stats.totalTokensReasoning = session.tokens.reasoning
-     // cache read/write
+   export function calculateSessionStats(
+     messages: MessageWithParts[],
+     session?: Session
+   ): SessionStats {
+     // ...existing aggregation...
+     // session-level overrides (authoritative):
+     if (session?.cost !== undefined) stats.totalCost = session.cost
+     if (session?.tokens) {
+       stats.totalTokensInput = session.tokens.input
+       stats.totalTokensOutput = session.tokens.output
+       stats.totalTokensReasoning = session.tokens.reasoning
+       stats.totalTokensCacheRead = session.tokens.cache?.read
+       stats.totalTokensCacheWrite = session.tokens.cache?.write
+     }
+     if (session?.model && !stats.model) stats.model = session.model
+     return stats
    }
-   if (session.model && !stats.model) stats.model = session.model
    ```
+   Note: the column is `cost real DEFAULT 0 NOT NULL`, so the override uses
+   `!== undefined` (not truthiness) - a session-level 0 is authoritative and
+   must override a nonzero message sum. `buildSessionData` (`data.ts:224`) is
+   updated to pass `session` through: `calculateSessionStats(messages, session)`.
+   `generateSessionHtml` (`html.ts:162`) likewise passes `session`.
 
 4. **Rendering layer - zero structural change.** `renderSessionStats`
    (`session.ts:153`) already emits Model/Tokens/Cost rows. Append a new row
@@ -178,9 +191,10 @@ aggregation is a fallback (for zero/missing values).
 
 ### Why this layering
 
-`calculateSessionStats` stays a pure function over messages (testable in
-isolation). The session-level override lives in one place
-(`buildSessionData`), easy to test and revert. Templates/CSS barely move.
+`calculateSessionStats` stays a pure function (now taking an optional
+session override). The session-level override logic is co-located with
+aggregation, so both HTML and Markdown paths get it by passing `session`.
+Templates/CSS barely move.
 
 ### Out of scope
 
@@ -312,8 +326,9 @@ plus ~15 new tests covering SQLite mapping, new fields, and validation.
 | `src/storage/reader.ts` | REWRITE: SQLite-backed; remove `getSessionDiff` |
 | `src/storage/types.ts` | EXTEND: Session cost/tokens/model; SessionSummary.diffs |
 | `src/storage/index.ts` | Update exports |
-| `src/render/data.ts` | EXTEND: SessionStats reasoning/cache; `buildSessionData` reconciliation |
-| `src/render/templates/session.ts` | Append reasoning/cache stat rows |
+| `src/render/data.ts` | EXTEND: SessionStats reasoning/cache; `calculateSessionStats` optional session param + reconciliation; `buildSessionData` passes session |
+| `src/render/html.ts` | Pass `session` into `calculateSessionStats`; extend `SessionPageData.totalTokens` wiring for reasoning/cache |
+| `src/render/templates/session.ts` | Extend `SessionPageData.totalTokens` type; append reasoning/cache stat rows |
 | `src/index.ts` | Path resolution, validation block, variable/help-text rename |
 | `src/storage/reader.test.ts` | REWRITE setup to DB fixture |
 | `src/storage/db.test.ts` | NEW |
