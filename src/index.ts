@@ -6,7 +6,7 @@
 import { parseArgs } from "util"
 import { resolve, join } from "path"
 import { readdir } from "node:fs/promises"
-import { getDefaultStoragePath, findProjectByPath, listProjects, listSessions, getMessagesWithParts } from "./storage/reader"
+import { getDefaultDbPath, findProjectByPath, listProjects, listSessions, getMessagesWithParts } from "./storage/reader"
 import { generateHtml, type ProgressInfo, type GenerationStats } from "./render/html"
 import { generateMarkdown, calculateSessionStats } from "./render"
 import { serve } from "./server"
@@ -338,7 +338,7 @@ if (values.version) {
 }
 
 // Main execution
-const storagePath = values.storage ?? getDefaultStoragePath()
+const storagePath = values.storage ?? getDefaultDbPath()
 const port = parseInt(values.port ?? "3000", 10)
 quietMode = values.quiet ?? false
 verboseMode = values.verbose ?? false
