@@ -42,7 +42,7 @@ export interface SessionPageData {
   /** Total message count */
   messageCount: number
   /** Total token usage */
-  totalTokens?: { input: number; output: number }
+  totalTokens?: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number }
   /** Total cost */
   totalCost?: number
   /** Total pages */
@@ -176,6 +176,17 @@ function renderSessionStats(data: SessionPageData): string {
   if (totalTokens) {
     const tokenStr = `${formatTokens(totalTokens.input)} in / ${formatTokens(totalTokens.output)} out`
     stats.push({ label: "Tokens", value: tokenStr })
+  }
+
+  if (totalTokens?.reasoning) {
+    stats.push({ label: "Reasoning", value: formatTokens(totalTokens.reasoning) })
+  }
+
+  if (totalTokens?.cacheRead || totalTokens?.cacheWrite) {
+    const parts: string[] = []
+    if (totalTokens.cacheRead) parts.push(`${formatTokens(totalTokens.cacheRead)} read`)
+    if (totalTokens.cacheWrite) parts.push(`${formatTokens(totalTokens.cacheWrite)} write`)
+    stats.push({ label: "Cache", value: parts.join(" / ") })
   }
 
   if (totalCost !== undefined && totalCost > 0) {

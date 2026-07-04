@@ -191,6 +191,26 @@ describe("renderSessionPage", () => {
       expect(html).toContain("$0.01")
     })
 
+    test("displays reasoning and cache token rows when present", () => {
+      const data: SessionPageData = {
+        session: {
+          id: "ses_1",
+          projectID: "proj_1",
+          directory: "/p",
+          title: "T",
+          version: "1.0",
+          time: { created: 0, updated: 0 },
+        },
+        timeline: [],
+        messageCount: 1,
+        pageCount: 1,
+        totalTokens: { input: 1000, output: 500, reasoning: 300, cacheRead: 200, cacheWrite: 50 },
+      }
+      const html = renderSessionPage(data)
+      expect(html).toContain("Reasoning")
+      expect(html).toContain("Cache")
+    })
+
     test("omits cost when zero", () => {
       const data: SessionPageData = {
         session: createSession(),
