@@ -24,6 +24,7 @@ export function renderTaskTool(part: ToolPart): string {
   const prompt = input?.prompt || ""
   const agentType = input?.subagent_type || "general"
   const command = input?.command
+  const sessionId = input?.session_id || extractSessionIdFromTaskOutput(state.output)
   const output = state.output || ""
   const error = state.error
   const status = state.status
@@ -38,6 +39,13 @@ export function renderTaskTool(part: ToolPart): string {
         <code>${escapeHtml(command)}</code>
       </div>`
     : ""
+
+  const sessionLinkHtml =
+    sessionId && isRenderableSessionId(sessionId)
+      ? `<a class="task-session-link" href="../${encodeURIComponent(sessionId)}/index.html" title="Open subagent session" onclick="event.stopPropagation()">
+        Jump to subagent
+      </a>`
+      : ""
 
   // Format prompt section (collapsible if long)
   const promptLines = prompt.split("\n").length
@@ -76,6 +84,7 @@ export function renderTaskTool(part: ToolPart): string {
     <span class="tool-icon">&#128101;</span>
     ${agentBadge}
     <span class="task-description">${escapeHtml(description)}</span>
+    ${sessionLinkHtml}
     <span class="tool-toggle">-</span>
   </div>
   <div class="tool-body">
@@ -85,6 +94,16 @@ export function renderTaskTool(part: ToolPart): string {
     ${errorHtml}
   </div>
 </div>`
+}
+
+function isRenderableSessionId(id: string): boolean {
+  return /^ses_[A-Za-z0-9]+$/.test(id)
+}
+
+function extractSessionIdFromTaskOutput(output: string | undefined): string | undefined {
+  if (!output) return undefined
+  const match = output.match(/<task\s+[^>]*id=["'](ses_[A-Za-z0-9]+)["']/)
+  return match?.[1]
 }
 
 /**
