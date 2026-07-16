@@ -681,7 +681,7 @@ describe("renderTaskTool", () => {
       expect(html).toContain("Result (4 lines)")
     })
 
-    test("handles session_id in input", () => {
+    test("renders subagent session link when session_id is present", () => {
       const part = createToolPart({
         tool: "task",
         state: {
@@ -697,9 +697,72 @@ describe("renderTaskTool", () => {
 
       const html = renderTaskTool(part)
 
-      // session_id shouldn't affect rendering, just ensure no errors
       expect(html).toContain('class="tool-call tool-task"')
       expect(html).toContain("Continue session")
+      expect(html).toContain('class="task-session-link"')
+      expect(html).toContain('href="../ses_abc123/index.html"')
+      expect(html).toContain("Jump to subagent")
+    })
+
+    test("renders subagent session link from task output id", () => {
+      const part = createToolPart({
+        tool: "task",
+        state: {
+          status: "completed",
+          input: {
+            description: "Extract reqs RFC-2119",
+            prompt: "Extract requirements",
+            subagent_type: "general",
+          },
+          output: '<task id="ses_0d952f01cffeAScm6fF16Wf4Hl" state="completed"><task_result>Done</task_result></task>',
+        },
+      })
+
+      const html = renderTaskTool(part)
+
+      expect(html).toContain('class="task-session-link"')
+      expect(html).toContain('href="../ses_0d952f01cffeAScm6fF16Wf4Hl/index.html"')
+      expect(html).toContain("Jump to subagent")
+    })
+
+    test("does not render subagent session link for non-session IDs", () => {
+      const part = createToolPart({
+        tool: "task",
+        state: {
+          status: "completed",
+          input: {
+            description: "Continue session",
+            prompt: "Continue work",
+            subagent_type: "general",
+            session_id: "javascript:alert(1)",
+          },
+        },
+      })
+
+      const html = renderTaskTool(part)
+
+      expect(html).not.toContain('class="task-session-link"')
+      expect(html).not.toContain("javascript:alert")
+    })
+
+    test("does not render subagent session link for path-like session IDs", () => {
+      const part = createToolPart({
+        tool: "task",
+        state: {
+          status: "completed",
+          input: {
+            description: "Continue session",
+            prompt: "Continue work",
+            subagent_type: "general",
+            session_id: "ses_../../other",
+          },
+        },
+      })
+
+      const html = renderTaskTool(part)
+
+      expect(html).not.toContain('class="task-session-link"')
+      expect(html).not.toContain("../other")
     })
   })
 })

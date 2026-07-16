@@ -1235,6 +1235,22 @@ pre code {
   white-space: nowrap;
 }
 
+.task-session-link {
+  color: var(--color-info);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-decoration: none;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.task-session-link:hover {
+  background: var(--color-bg-secondary);
+  text-decoration: none;
+}
+
 .task-command {
   display: flex;
   align-items: center;
